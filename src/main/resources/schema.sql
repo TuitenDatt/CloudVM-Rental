@@ -75,7 +75,7 @@ CREATE TABLE VerificationTokens (
 -- ================================================================
 INSERT INTO Packages (package_name, duration_days, price, ami_id, instance_type)
 VALUES
-    (N'Gói 7 Ngày - t2.micro',  7,  150000.00, 'ami-0aa15eda8b6bee073', 't2.micro'),
-    (N'Gói 30 Ngày - t2.micro', 30, 500000.00, 'ami-0aa15eda8b6bee073', 't2.micro'),
-    (N'Gói 7 Ngày - t3.micro',  7,  180000.00, 'ami-0aa15eda8b6bee073', 't3.micro'),
-    (N'Gói 30 Ngày - t3.micro', 30, 620000.00, 'ami-0aa15eda8b6bee073', 't3.micro');
+    (N'Gói 7 Ngày - t2.micro',  7,  150000.00, 'ami-0ab5e8edee718de14', 't2.micro'),
+    (N'Gói 30 Ngày - t2.micro', 30, 500000.00, 'ami-0ab5e8edee718de14', 't2.micro'),
+    (N'Gói 7 Ngày - t3.micro',  7,  180000.00, 'ami-0ab5e8edee718de14', 't3.micro'),
+    (N'Gói 30 Ngày - t3.micro', 30, 620000.00, 'ami-0ab5e8edee718de14', 't3.micro');
