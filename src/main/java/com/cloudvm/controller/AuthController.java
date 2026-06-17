@@ -1,7 +1,11 @@
 package com.cloudvm.controller;
 
+import com.cloudvm.dto.request.ForgotPasswordRequest;
 import com.cloudvm.dto.request.LoginRequest;
+import com.cloudvm.dto.request.RefreshTokenRequest;
 import com.cloudvm.dto.request.RegisterRequest;
+import com.cloudvm.dto.request.ResetPasswordRequest;
+import com.cloudvm.dto.request.VerifyEmailRequest;
 import com.cloudvm.dto.response.ApiResponse;
 import com.cloudvm.dto.response.AuthResponse;
 import com.cloudvm.service.AuthService;
@@ -16,14 +20,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Controller xử lý Authentication — Register và Login.
- *
- * Các endpoint này được permit all trong SecurityConfig (không cần JWT).
- *
- * POST /api/auth/register  — Đăng ký tài khoản mới
- * POST /api/auth/login     — Đăng nhập, nhận JWT token
- */
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -32,71 +28,87 @@ public class AuthController {
 
     private final AuthService authService;
 
-    /**
-     * Đăng ký tài khoản mới.
-     *
-     * Request body:
-     * {
-     *   "username": "john",
-     *   "password": "password123",
-     *   "email": "john@example.com"
-     * }
-     *
-     * Response 201 Created:
-     * {
-     *   "success": true,
-     *   "message": "Đăng ký thành công",
-     *   "data": { "token": "...", "userId": 1, "username": "john", ... }
-     * }
-     */
     @PostMapping("/register")
-    public ResponseEntity<ApiResponse<AuthResponse>> register(
+    public ResponseEntity<ApiResponse<Void>> register(
             @Valid @RequestBody RegisterRequest request
     ) {
         try {
-            AuthResponse authResponse = authService.register(request);
+            authService.register(request);
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(ApiResponse.success("Đăng ký thành công", authResponse));
+                    .body(ApiResponse.success("Dang ky thanh cong. Ban co the dang nhap ngay.", null));
         } catch (IllegalArgumentException e) {
-            log.warn("Đăng ký thất bại: {}", e.getMessage());
+            log.warn("Dang ky that bai: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(ApiResponse.error(e.getMessage()));
         }
     }
 
-    /**
-     * Đăng nhập và nhận JWT token.
-     *
-     * Request body:
-     * {
-     *   "username": "john",
-     *   "password": "password123"
-     * }
-     *
-     * Response 200 OK:
-     * {
-     *   "success": true,
-     *   "message": "Đăng nhập thành công",
-     *   "data": { "token": "eyJhbGci...", "userId": 1, ... }
-     * }
-     *
-     * Response 401 Unauthorized nếu sai thông tin:
-     * {
-     *   "success": false,
-     *   "message": "Tên đăng nhập hoặc mật khẩu không đúng"
-     * }
-     */
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request
     ) {
         try {
             AuthResponse authResponse = authService.login(request);
-            return ResponseEntity.ok(ApiResponse.success("Đăng nhập thành công", authResponse));
+            return ResponseEntity.ok(ApiResponse.success("Dang nhap thanh cong", authResponse));
         } catch (AuthenticationException e) {
-            log.warn("Đăng nhập thất bại cho user: {}", request.getUsername());
+            log.warn("Dang nhap that bai cho user: {}", request.getUsername());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("Tên đăng nhập hoặc mật khẩu không đúng"));
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<AuthResponse>> refresh(
+            @Valid @RequestBody RefreshTokenRequest request
+    ) {
+        try {
+            AuthResponse authResponse = authService.refresh(request);
+            return ResponseEntity.ok(ApiResponse.success("Lam moi token thanh cong", authResponse));
+        } catch (AuthenticationException | IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @Valid @RequestBody RefreshTokenRequest request
+    ) {
+        authService.logout(request);
+        return ResponseEntity.ok(ApiResponse.success("Dang xuat thanh cong", null));
+    }
+
+    @PostMapping("/verify-email")
+    public ResponseEntity<ApiResponse<Void>> verifyEmail(
+            @Valid @RequestBody VerifyEmailRequest request
+    ) {
+        try {
+            authService.verifyEmail(request);
+            return ResponseEntity.ok(ApiResponse.success("Xac thuc email thanh cong", null));
+        } catch (AuthenticationException | IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<Void>> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request
+    ) {
+        authService.forgotPassword(request);
+        return ResponseEntity.ok(ApiResponse.success("Neu email ton tai, chung toi da gui huong dan dat lai mat khau.", null));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request
+    ) {
+        try {
+            authService.resetPassword(request);
+            return ResponseEntity.ok(ApiResponse.success("Dat lai mat khau thanh cong", null));
+        } catch (AuthenticationException | IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(e.getMessage()));
         }
     }
 }

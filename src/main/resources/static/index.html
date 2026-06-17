@@ -56,7 +56,15 @@
                 </div>
                 <div class="form-group">
                     <label for="login-password">Mật khẩu</label>
-                    <input id="login-password" type="password" placeholder="Nhập mật khẩu..." autocomplete="current-password" required />
+                    <div class="password-field">
+                        <input id="login-password" type="password" placeholder="Nhập mật khẩu..." autocomplete="current-password" required />
+                        <button type="button" class="password-toggle" data-target="login-password" onclick="togglePasswordVisibility(this)">
+                            Hien
+                        </button>
+                    </div>
+                </div>
+                <div class="auth-inline-actions">
+                    <button type="button" class="auth-link" onclick="openForgotPasswordModal()">Quen mat khau?</button>
                 </div>
                 <div id="login-error" class="form-error hidden"></div>
                 <button id="btn-login" type="submit" class="btn btn-primary btn-full">
@@ -64,6 +72,11 @@
                     <span class="btn-loading hidden">
                         <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>
                     </span>
+                </button>
+                <div class="auth-divider"><span>Hoặc</span></div>
+                <button type="button" class="btn btn-google btn-full" onclick="loginWithGoogle()">
+                    <span class="google-mark">G</span>
+                    Tiếp tục với Google
                 </button>
             </form>
 
@@ -79,11 +92,88 @@
                 </div>
                 <div class="form-group">
                     <label for="reg-password">Mật khẩu</label>
-                    <input id="reg-password" type="password" placeholder="Tối thiểu 6 ký tự..." autocomplete="new-password" required minlength="6" />
+                    <div class="password-field">
+                        <input id="reg-password" type="password" placeholder="Tối thiểu 6 ký tự..." autocomplete="new-password" required minlength="6" />
+                        <button type="button" class="password-toggle" data-target="reg-password" onclick="togglePasswordVisibility(this)">
+                            Hiện
+                        </button>
+                    </div>
+                    <div class="password-strength" aria-live="polite">
+                        <div class="password-strength-track">
+                            <div id="reg-password-strength-bar" class="password-strength-fill strength-empty"></div>
+                        </div>
+                        <div class="password-strength-meta">
+                            <span id="reg-password-strength-label" class="password-strength-label">Độ mạnh mật khẩu</span>
+                            <span id="reg-password-strength-hint" class="password-strength-hint">Dùng ít nhất 8 ký tự, kết hợp chữ hoa, chữ thường, số và ký tự đặc biệt.</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="reg-confirm-password">Xác nhận mật khẩu</label>
+                    <div class="password-field">
+                        <input id="reg-confirm-password" type="password" placeholder="Nhập lại mật khẩu..." autocomplete="new-password" required minlength="6" />
+                        <button type="button" class="password-toggle" data-target="reg-confirm-password" onclick="togglePasswordVisibility(this)">
+                            Hiện
+                        </button>
+                    </div>
                 </div>
                 <div id="register-error" class="form-error hidden"></div>
                 <button id="btn-register" type="submit" class="btn btn-primary btn-full">
                     <span class="btn-text">Tạo tài khoản</span>
+                    <span class="btn-loading hidden">
+                        <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>
+                    </span>
+                </button>
+                <div class="auth-divider"><span>Hoặc</span></div>
+                <button type="button" class="btn btn-google btn-full" onclick="loginWithGoogle()">
+                    <span class="google-mark">G</span>
+                    Tiếp tục với Google
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- MODAL: Forgot Password                                           -->
+<!-- ================================================================ -->
+<div id="modal-forgot-password" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal glass-card">
+        <h2 class="modal-title">Quên mật khẩu</h2>
+        <div class="modal-body">
+            <form class="profile-form" onsubmit="handleForgotPassword(event)">
+                <div class="form-group">
+                    <label for="forgot-email">Email tài khoản</label>
+                    <input id="forgot-email" type="email" autocomplete="email" required />
+                </div>
+                <div id="forgot-password-error" class="form-error hidden"></div>
+                <button id="btn-forgot-password" type="submit" class="btn btn-primary btn-full">
+                    <span class="btn-text">Gửi liên kết đặt lại mật khẩu</span>
+                    <span class="btn-loading hidden">
+                        <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>
+                    </span>
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- MODAL: Reset Password                                            -->
+<!-- ================================================================ -->
+<div id="modal-reset-password" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal glass-card">
+        <h2 class="modal-title">Đặt lại mật khẩu</h2>
+        <div class="modal-body">
+            <form class="profile-form" onsubmit="handleResetPassword(event)">
+                <input id="reset-password-token" type="hidden" />
+                <div class="form-group">
+                    <label for="reset-new-password">Mật khẩu mới</label>
+                    <input id="reset-new-password" type="password" autocomplete="new-password" minlength="6" required />
+                </div>
+                <div id="reset-password-error" class="form-error hidden"></div>
+                <button id="btn-reset-password" type="submit" class="btn btn-primary btn-full">
+                    <span class="btn-text">Đặt lại mật khẩu</span>
                     <span class="btn-loading hidden">
                         <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>
                     </span>
@@ -121,10 +211,10 @@
         </nav>
 
         <div class="sidebar-footer">
-            <div class="user-info">
+            <button class="user-info profile-trigger" onclick="openProfileModal()" title="Hồ sơ cá nhân">
                 <div class="user-avatar" id="sidebar-avatar">U</div>
                 <span id="sidebar-username" class="user-name">Username</span>
-            </div>
+            </button>
             <button class="btn-logout" onclick="handleLogout()" title="Đăng xuất">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             </button>
@@ -244,6 +334,158 @@
                     <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>
                 </span>
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- MODAL: Profile                                                   -->
+<!-- ================================================================ -->
+<div id="modal-profile" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal glass-card profile-modal settings-modal">
+        <div class="settings-shell">
+            <aside class="settings-sidebar">
+                <div class="settings-sidebar-header">
+                    <div class="user-avatar profile-avatar" id="profile-avatar">U</div>
+                    <div>
+                        <div id="profile-username" class="profile-name">Username</div>
+                        <div id="profile-created" class="profile-meta">Ngày tạo tài khoản</div>
+                    </div>
+                </div>
+
+                <div class="settings-nav">
+                    <button id="settings-tab-overview" class="settings-nav-item active" onclick="switchProfileSection('overview')">Hồ sơ</button>
+                    <button id="settings-tab-security" class="settings-nav-item" onclick="switchProfileSection('security')">Bảo mật</button>
+                    <button id="settings-tab-usage" class="settings-nav-item" onclick="switchProfileSection('usage')">Sử dụng CloudVM</button>
+                    <button id="settings-tab-preferences" class="settings-nav-item" onclick="switchProfileSection('preferences')">Tùy chọn</button>
+                </div>
+
+                <button class="btn btn-ghost btn-full settings-close" onclick="closeModal('modal-profile')">Đóng</button>
+            </aside>
+
+            <div class="settings-content">
+                <section id="profile-section-overview" class="settings-section active">
+                    <div class="settings-header">
+                        <h2 class="settings-title">Hồ sơ cá nhân</h2>
+                        <p class="settings-subtitle">Cập nhật tên tài khoản. Email đăng nhập được giữ nguyên.</p>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="settings-row">
+                            <span class="settings-label">Username</span>
+                            <span id="profile-username-readonly" class="settings-value">Username</span>
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">Email hiện tại</span>
+                            <span id="profile-email-readonly" class="settings-value">user@example.com</span>
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-label">Loại tài khoản</span>
+                            <span class="settings-value">Tài khoản CloudVM</span>
+                        </div>
+                    </div>
+
+                    <form class="profile-form settings-card" onsubmit="handleUpdateProfile(event)">
+                        <div class="form-group">
+                            <label for="profile-username-input">Username</label>
+                            <input id="profile-username-input" type="text" autocomplete="username" minlength="3" maxlength="50" required />
+                        </div>
+                        <div id="profile-error" class="form-error hidden"></div>
+                        <button id="btn-save-profile" type="submit" class="btn btn-primary btn-save-profile">
+                            <span class="btn-text">Lưu hồ sơ</span>
+                            <span class="btn-loading hidden">
+                                <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>
+                            </span>
+                        </button>
+                    </form>
+                </section>
+
+                <section id="profile-section-security" class="settings-section">
+                    <div class="settings-header">
+                        <h2 class="settings-title">Bảo mật</h2>
+                        <p class="settings-subtitle">Đổi mật khẩu để bảo vệ tài khoản CloudVM của bạn.</p>
+                    </div>
+
+                    <form class="profile-form settings-card" onsubmit="handleChangePassword(event)">
+                        <div class="form-group">
+                            <label for="profile-current-password">Mật khẩu hiện tại</label>
+                            <input id="profile-current-password" type="password" autocomplete="current-password" />
+                        </div>
+                        <div class="form-group">
+                            <label for="profile-new-password">Mật khẩu mới</label>
+                            <input id="profile-new-password" type="password" autocomplete="new-password" minlength="6" />
+                        </div>
+                        <div id="profile-password-error" class="form-error hidden"></div>
+                        <button id="btn-change-password" type="submit" class="btn btn-primary">
+                            <span class="btn-text">Đổi mật khẩu</span>
+                            <span class="btn-loading hidden">
+                                <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>
+                            </span>
+                        </button>
+                    </form>
+                </section>
+
+                <section id="profile-section-usage" class="settings-section">
+                    <div class="settings-header">
+                        <h2 class="settings-title">Sử dụng CloudVM</h2>
+                        <p class="settings-subtitle">Theo dõi trạng thái và lịch sử thuê máy ảo của tài khoản.</p>
+                    </div>
+
+                    <div class="usage-grid">
+                        <div class="usage-card">
+                            <span class="usage-label">Đang chạy</span>
+                            <span id="usage-running" class="usage-value">0</span>
+                        </div>
+                        <div class="usage-card">
+                            <span class="usage-label">Đang khởi tạo</span>
+                            <span id="usage-pending" class="usage-value">0</span>
+                        </div>
+                        <div class="usage-card">
+                            <span class="usage-label">Đã hết hạn</span>
+                            <span id="usage-expired" class="usage-value">0</span>
+                        </div>
+                        <div class="usage-card">
+                            <span class="usage-label">Tổng lịch sử thuê</span>
+                            <span id="usage-total" class="usage-value">0</span>
+                        </div>
+                    </div>
+
+                    <div class="settings-card settings-stack">
+                        <div class="settings-row">
+                            <span class="settings-label strong">Máy ảo đang hoạt động</span>
+                            <span id="usage-running-list-count" class="settings-value">0 máy</span>
+                        </div>
+                        <div id="usage-running-list" class="usage-instance-list">
+                            <div class="usage-empty">Chưa có máy ảo đang chạy.</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="profile-section-preferences" class="settings-section">
+                    <div class="settings-header">
+                        <h2 class="settings-title">Tùy chọn</h2>
+                        <p class="settings-subtitle">Giữ lại vài thiết lập cá nhân để trải nghiệm dễ chịu hơn.</p>
+                    </div>
+
+                    <div class="settings-card settings-stack">
+                        <label class="preference-row">
+                            <div>
+                                <div class="settings-label strong">Tự động làm mới danh sách máy</div>
+                                <div class="settings-hint">Cho phép dashboard cập nhật trạng thái máy ảo theo chu kỳ nền.</div>
+                            </div>
+                            <input id="pref-auto-refresh" type="checkbox" class="toggle-input" onchange="handlePreferenceChange()" />
+                        </label>
+
+                        <label class="preference-row">
+                            <div>
+                                <div class="settings-label strong">Thông báo nổi</div>
+                                <div class="settings-hint">Hiển thị toast khi hồ sơ hoặc máy ảo có thay đổi.</div>
+                            </div>
+                            <input id="pref-toasts" type="checkbox" class="toggle-input" onchange="handlePreferenceChange()" />
+                        </label>
+                    </div>
+                </section>
+            </div>
         </div>
     </div>
 </div>

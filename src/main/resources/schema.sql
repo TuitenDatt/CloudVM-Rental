@@ -13,6 +13,8 @@ CREATE TABLE Users (
     username     VARCHAR(50)  NOT NULL UNIQUE,
     password     VARCHAR(255) NOT NULL,
     email        VARCHAR(100) NOT NULL UNIQUE,
+    auth_provider VARCHAR(20) NOT NULL DEFAULT 'LOCAL',
+    email_verified BIT NOT NULL DEFAULT 1,
     created_at   DATETIME     DEFAULT GETDATE()
 );
 
@@ -44,14 +46,36 @@ CREATE TABLE CloudInstances (
 );
 
 -- ================================================================
--- SEED DATA: Packages
--- Thay ami_id bằng AMI Windows Server thực tế tại ap-southeast-1
--- Windows Server 2022 Base tại ap-southeast-1: ami-0c7c4f1e6f1e1e1e1 (ví dụ)
--- Tìm AMI thực tại: EC2 Console -> AMIs -> Windows
+-- TABLE: RefreshTokens
+-- ================================================================
+CREATE TABLE RefreshTokens (
+    id           INT IDENTITY(1,1) PRIMARY KEY,
+    user_id      INT          NOT NULL FOREIGN KEY REFERENCES Users(id),
+    token        VARCHAR(255) NOT NULL UNIQUE,
+    expires_at   DATETIME     NOT NULL,
+    revoked      BIT          NOT NULL DEFAULT 0,
+    created_at   DATETIME     DEFAULT GETDATE()
+);
+
+-- ================================================================
+-- TABLE: VerificationTokens
+-- ================================================================
+CREATE TABLE VerificationTokens (
+    id           INT IDENTITY(1,1) PRIMARY KEY,
+    user_id      INT          NOT NULL FOREIGN KEY REFERENCES Users(id),
+    token        VARCHAR(255) NOT NULL UNIQUE,
+    type         VARCHAR(30)  NOT NULL,
+    expires_at   DATETIME     NOT NULL,
+    used         BIT          NOT NULL DEFAULT 0,
+    created_at   DATETIME     DEFAULT GETDATE()
+);
+
+-- ================================================================
+
 -- ================================================================
 INSERT INTO Packages (package_name, duration_days, price, ami_id, instance_type)
 VALUES
-    (N'Gói 7 Ngày - t2.micro',  7,  150000.00, 'ami-xxxxxxxxxxxxxxxxx', 't2.micro'),
-    (N'Gói 30 Ngày - t2.micro', 30, 500000.00, 'ami-xxxxxxxxxxxxxxxxx', 't2.micro'),
-    (N'Gói 7 Ngày - t3.micro',  7,  180000.00, 'ami-xxxxxxxxxxxxxxxxx', 't3.micro'),
-    (N'Gói 30 Ngày - t3.micro', 30, 620000.00, 'ami-xxxxxxxxxxxxxxxxx', 't3.micro');
+    (N'Gói 7 Ngày - t2.micro',  7,  150000.00, 'ami-0aa15eda8b6bee073', 't2.micro'),
+    (N'Gói 30 Ngày - t2.micro', 30, 500000.00, 'ami-0aa15eda8b6bee073', 't2.micro'),
+    (N'Gói 7 Ngày - t3.micro',  7,  180000.00, 'ami-0aa15eda8b6bee073', 't3.micro'),
+    (N'Gói 30 Ngày - t3.micro', 30, 620000.00, 'ami-0aa15eda8b6bee073', 't3.micro');

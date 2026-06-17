@@ -16,7 +16,9 @@
 // ================================================================
 const API_BASE = '/api';
 const TOKEN_KEY = 'cloudvm_token';
+const REFRESH_TOKEN_KEY = 'cloudvm_refresh_token';
 const USER_KEY  = 'cloudvm_user';
+const PROFILE_PREFS_KEY = 'cloudvm_profile_prefs';
 
 // Polling interval để refresh instance status (ms)
 const POLL_INTERVAL_MS = 15000;
@@ -24,6 +26,34 @@ const POLL_INTERVAL_MS = 15000;
 // State
 let pollTimer = null;
 let selectedPackageForRent = null;
+let refreshPromise = null;
+
+function getProfilePreferences() {
+    const raw = localStorage.getItem(PROFILE_PREFS_KEY);
+    if (!raw) {
+        return {
+            autoRefresh: true,
+            toasts: true,
+        };
+    }
+
+    try {
+        return {
+            autoRefresh: true,
+            toasts: true,
+            ...JSON.parse(raw),
+        };
+    } catch (_) {
+        return {
+            autoRefresh: true,
+            toasts: true,
+        };
+    }
+}
+
+function saveProfilePreferences(prefs) {
+    localStorage.setItem(PROFILE_PREFS_KEY, JSON.stringify(prefs));
+}
 
 // ================================================================
 // UTILITY FUNCTIONS
@@ -35,6 +65,10 @@ let selectedPackageForRent = null;
  */
 function getToken() {
     return localStorage.getItem(TOKEN_KEY);
+}
+
+function getRefreshToken() {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
 /**
@@ -52,10 +86,12 @@ function getUser() {
  */
 function saveAuth(authData) {
     localStorage.setItem(TOKEN_KEY, authData.token);
+    localStorage.setItem(REFRESH_TOKEN_KEY, authData.refreshToken);
     localStorage.setItem(USER_KEY, JSON.stringify({
         userId:   authData.userId,
         username: authData.username,
         email:    authData.email,
+        authProvider: authData.authProvider,
     }));
 }
 
@@ -64,7 +100,19 @@ function saveAuth(authData) {
  */
 function clearAuth() {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+}
+
+function updateStoredUser(profile) {
+    const current = getUser() || {};
+    localStorage.setItem(USER_KEY, JSON.stringify({
+        ...current,
+        userId: profile.userId,
+        username: profile.username,
+        email: profile.email,
+    }));
+    renderSidebarUser();
 }
 
 /**
@@ -158,6 +206,10 @@ function formatTimeRemaining(expireDate) {
  * @param {number} duration Thời gian hiển thị (ms)
  */
 function showToast(message, type = 'info', duration = 4000) {
+    if (!getProfilePreferences().toasts && type !== 'error') {
+        return;
+    }
+
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
@@ -180,6 +232,127 @@ function openModal(id) {
 
 function closeModal(id) {
     document.getElementById(id).classList.add('hidden');
+}
+
+function togglePasswordVisibility(button) {
+    const inputId = button.dataset.target;
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    const nextType = input.type === 'password' ? 'text' : 'password';
+    input.type = nextType;
+    button.textContent = nextType === 'password' ? 'Hien' : 'An';
+}
+
+function evaluatePasswordStrength(password) {
+    if (!password) {
+        return {
+            className: 'strength-empty',
+            label: 'Độ mạnh mật khẩu',
+            hint: 'Dùng ít nhất 8 ký tự, kết hợp chữ hoa, chữ thường, số và ký tự đặc biệt.',
+        };
+    }
+
+    let score = 0;
+    if (password.length >= 8) score += 1;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+    if (/\d/.test(password)) score += 1;
+    if (/[^A-Za-z0-9]/.test(password) || password.length >= 12) score += 1;
+
+    if (score <= 1) {
+        return {
+            className: 'strength-weak',
+            label: 'Yếu',
+            hint: 'Thêm độ dài và kết hợp nhiều loại ký tự hơn.',
+        };
+    }
+    if (score === 2) {
+        return {
+            className: 'strength-fair',
+            label: 'Trung bình',
+            hint: 'Nên thêm chữ hoa, số hoặc ký tự đặc biệt.',
+        };
+    }
+    if (score === 3) {
+        return {
+            className: 'strength-good',
+            label: 'Tốt',
+            hint: 'Mật khẩu khá tốt. Thêm ký tự đặc biệt để mạnh hơn.',
+        };
+    }
+    return {
+        className: 'strength-strong',
+        label: 'Mạnh',
+        hint: 'Mật khẩu mạnh, phù hợp để sử dụng.',
+    };
+}
+
+function updateRegisterPasswordStrength() {
+    const input = document.getElementById('reg-password');
+    const bar = document.getElementById('reg-password-strength-bar');
+    const label = document.getElementById('reg-password-strength-label');
+    const hint = document.getElementById('reg-password-strength-hint');
+
+    if (!input || !bar || !label || !hint) {
+        return;
+    }
+
+    const strength = evaluatePasswordStrength(input.value);
+    bar.className = `password-strength-fill ${strength.className}`;
+    label.textContent = strength.label;
+    hint.textContent = strength.hint;
+}
+
+function validateRegisterPasswords() {
+    const password = document.getElementById('reg-password').value;
+    const confirmPassword = document.getElementById('reg-confirm-password').value;
+
+    if (password !== confirmPassword) {
+        throw new Error('Mat khau xac nhan khong khop');
+    }
+}
+
+function initAuthPasswordEnhancements() {
+    const registerPassword = document.getElementById('reg-password');
+    const confirmPassword = document.getElementById('reg-confirm-password');
+
+    if (registerPassword) {
+        registerPassword.addEventListener('input', updateRegisterPasswordStrength);
+    }
+
+    if (confirmPassword) {
+        confirmPassword.addEventListener('paste', () => {
+            setTimeout(validateRegisterPasswordMatchHint, 0);
+        });
+        confirmPassword.addEventListener('input', validateRegisterPasswordMatchHint);
+    }
+
+    if (registerPassword) {
+        registerPassword.addEventListener('input', validateRegisterPasswordMatchHint);
+    }
+
+    updateRegisterPasswordStrength();
+}
+
+function validateRegisterPasswordMatchHint() {
+    const errorEl = document.getElementById('register-error');
+    const password = document.getElementById('reg-password')?.value || '';
+    const confirmPassword = document.getElementById('reg-confirm-password')?.value || '';
+
+    if (!errorEl || !confirmPassword) {
+        return;
+    }
+
+    if (confirmPassword && password !== confirmPassword) {
+        errorEl.textContent = 'Mat khau xac nhan khong khop';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
+    if (errorEl.textContent === 'Mat khau xac nhan khong khop') {
+        errorEl.classList.add('hidden');
+        errorEl.textContent = '';
+    }
 }
 
 // ================================================================
@@ -236,6 +409,40 @@ function switchAuthTab(tab) {
     document.getElementById(`form-${tab}`).classList.add('active');
 }
 
+function loginWithGoogle() {
+    window.location.href = '/oauth2/authorization/google';
+}
+
+function handleOAuthRedirect() {
+    if (!window.location.hash || !window.location.hash.includes('oauth=')) {
+        return false;
+    }
+
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    const status = params.get('oauth');
+
+    if (status === 'success') {
+        saveAuth({
+            token: params.get('token'),
+            refreshToken: params.get('refreshToken'),
+            userId: Number(params.get('userId')),
+            username: params.get('username'),
+            email: params.get('email'),
+            authProvider: params.get('authProvider'),
+        });
+        history.replaceState(null, '', window.location.pathname);
+        initDashboard();
+        showView('dashboard');
+        showToast(`Chào mừng, ${params.get('username')}!`, 'success');
+        return true;
+    }
+
+    history.replaceState(null, '', window.location.pathname);
+    showView('auth');
+    showToast('Không thể đăng nhập bằng Google.', 'error');
+    return true;
+}
+
 /**
  * Xử lý đăng nhập.
  * @param {Event} event
@@ -281,8 +488,11 @@ async function handleRegister(event) {
 
     setButtonLoading(btn, true);
     errorEl.classList.add('hidden');
+    errorEl.textContent = '';
 
     try {
+        validateRegisterPasswords();
+
         const data = await apiFetch('/auth/register', {
             method: 'POST',
             body: JSON.stringify({
@@ -291,11 +501,12 @@ async function handleRegister(event) {
                 password: document.getElementById('reg-password').value,
             }),
         });
-
-        saveAuth(data.data);
-        initDashboard();
-        showView('dashboard');
-        showToast(`Đăng ký thành công! Chào mừng ${data.data.username}!`, 'success');
+        switchAuthTab('login');
+        document.getElementById('login-username').value = document.getElementById('reg-username').value;
+        document.getElementById('reg-password').value = '';
+        document.getElementById('reg-confirm-password').value = '';
+        updateRegisterPasswordStrength();
+        showToast(data.message || 'Dang ky thanh cong. Ban co the dang nhap ngay.', 'success');
 
     } catch (error) {
         errorEl.textContent = error.message;
@@ -308,11 +519,197 @@ async function handleRegister(event) {
 /**
  * Đăng xuất.
  */
-function handleLogout() {
+async function handleLogout() {
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+        try {
+            await fetch(`${API_BASE}/auth/logout`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ refreshToken }),
+            });
+        } catch (_) {
+            // Ignore logout sync failures and clear local state anyway.
+        }
+    }
+
     stopPolling();
     clearAuth();
     showView('auth');
     showToast('Đã đăng xuất thành công.', 'info');
+}
+
+async function openProfileModal() {
+    const user = getUser();
+    if (user) {
+        populateProfile({
+            userId: user.userId,
+            username: user.username,
+            email: user.email,
+        });
+    }
+
+    switchProfileSection('overview');
+    syncProfilePreferencesUi();
+    document.getElementById('profile-error').classList.add('hidden');
+    document.getElementById('profile-password-error').classList.add('hidden');
+    document.getElementById('profile-current-password').value = '';
+    document.getElementById('profile-new-password').value = '';
+    openModal('modal-profile');
+
+    try {
+        const data = await apiFetch('/profile');
+        populateProfile(data.data);
+        updateStoredUser(data.data);
+        await loadProfileUsage();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+function switchProfileSection(sectionName) {
+    document.querySelectorAll('.settings-nav-item').forEach(item => item.classList.remove('active'));
+    document.querySelectorAll('.settings-section').forEach(section => section.classList.remove('active'));
+
+    const tab = document.getElementById(`settings-tab-${sectionName}`);
+    const section = document.getElementById(`profile-section-${sectionName}`);
+    if (tab) tab.classList.add('active');
+    if (section) section.classList.add('active');
+}
+
+function syncProfilePreferencesUi() {
+    const prefs = getProfilePreferences();
+    document.getElementById('pref-auto-refresh').checked = prefs.autoRefresh;
+    document.getElementById('pref-toasts').checked = prefs.toasts;
+}
+
+function handlePreferenceChange() {
+    const prefs = {
+        autoRefresh: document.getElementById('pref-auto-refresh').checked,
+        toasts: document.getElementById('pref-toasts').checked,
+    };
+    saveProfilePreferences(prefs);
+    showToast('Da cap nhat tuy chon.', 'success');
+}
+
+function populateProfile(profile) {
+    document.getElementById('profile-username').textContent = profile.username || 'User';
+    document.getElementById('profile-avatar').textContent = (profile.username || 'U').charAt(0).toUpperCase();
+    document.getElementById('profile-username-input').value = profile.username || '';
+    document.getElementById('profile-username-readonly').textContent = profile.username || 'User';
+    document.getElementById('profile-email-readonly').textContent = profile.email || '-';
+    document.getElementById('profile-created').textContent = profile.createdAt
+        ? `Tạo lúc ${formatDateTime(profile.createdAt)}`
+        : 'Tài khoản CloudVM';
+}
+
+function populateUsageFromInstances(instances) {
+    const runningInstances = instances.filter(instance => instance.status === 'RUNNING');
+    const pendingInstances = instances.filter(instance => instance.status === 'PENDING');
+    const expiredInstances = instances.filter(instance => instance.status === 'STOPPED_EXPIRED');
+    const activeInstances = instances.filter(instance =>
+        instance.status === 'RUNNING' || instance.status === 'PENDING' || instance.status === 'STOPPED_EXPIRED'
+    );
+
+    document.getElementById('usage-running').textContent = runningInstances.length;
+    document.getElementById('usage-pending').textContent = pendingInstances.length;
+    document.getElementById('usage-expired').textContent = expiredInstances.length;
+    document.getElementById('usage-total').textContent = instances.length;
+
+    const quotaLimit = 2;
+    document.getElementById('usage-quota').textContent = `${activeInstances.length} / ${quotaLimit} may`;
+    document.getElementById('usage-quota-bar').style.width =
+        `${Math.min(100, Math.round((activeInstances.length / quotaLimit) * 100))}%`;
+
+    const runningList = document.getElementById('usage-running-list');
+    const runningCount = document.getElementById('usage-running-list-count');
+    runningCount.textContent = `${runningInstances.length} may`;
+
+    if (runningInstances.length === 0) {
+        runningList.innerHTML = '<div class="usage-empty">Chua co may ao dang chay.</div>';
+        return;
+    }
+
+    runningList.innerHTML = runningInstances.map(instance => `
+        <div class="usage-instance-item">
+            <div class="usage-instance-main">
+                <div class="usage-instance-name">${escapeHtml(instance.packageName || 'CloudVM instance')}</div>
+                <div class="usage-instance-meta">
+                    ${escapeHtml(instance.instanceType || '-')} | ${instance.publicIp || 'Chua co IP'}
+                </div>
+            </div>
+            <span class="status-badge status-running">Dang chay</span>
+        </div>
+    `).join('');
+}
+
+async function loadProfileUsage() {
+    try {
+        const data = await apiFetch('/instances');
+        populateUsageFromInstances(data.data || []);
+    } catch (error) {
+        document.getElementById('usage-running-list').innerHTML =
+            `<div class="usage-empty">${escapeHtml(error.message)}</div>`;
+    }
+}
+
+async function handleUpdateProfile(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-save-profile');
+    const errorEl = document.getElementById('profile-error');
+
+    setButtonLoading(btn, true);
+    errorEl.classList.add('hidden');
+
+    try {
+        const data = await apiFetch('/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+                username: document.getElementById('profile-username-input').value,
+            }),
+        });
+        populateProfile(data.data);
+        updateStoredUser(data.data);
+        showToast('Đã cập nhật hồ sơ.', 'success');
+    } catch (error) {
+        errorEl.textContent = error.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        setButtonLoading(btn, false);
+    }
+}
+
+async function handleChangePassword(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-change-password');
+    const errorEl = document.getElementById('profile-password-error');
+    const currentPassword = document.getElementById('profile-current-password').value;
+    const newPassword = document.getElementById('profile-new-password').value;
+
+    setButtonLoading(btn, true);
+    errorEl.classList.add('hidden');
+
+    try {
+        if (!currentPassword || !newPassword) {
+            throw new Error('Vui lòng nhập đủ mật khẩu hiện tại và mật khẩu mới');
+        }
+
+        await apiFetch('/profile/password', {
+            method: 'PUT',
+            body: JSON.stringify({ currentPassword, newPassword }),
+        });
+
+        document.getElementById('profile-current-password').value = '';
+        document.getElementById('profile-new-password').value = '';
+        showToast('Đã đổi mật khẩu.', 'success');
+    } catch (error) {
+        errorEl.textContent = error.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        setButtonLoading(btn, false);
+    }
 }
 
 // ================================================================
@@ -327,12 +724,19 @@ function initDashboard() {
     if (!user) return;
 
     // Cập nhật sidebar user info
-    document.getElementById('sidebar-username').textContent = user.username;
-    document.getElementById('sidebar-avatar').textContent = user.username.charAt(0).toUpperCase();
+    renderSidebarUser();
 
     // Load instances và bắt đầu polling
     loadInstances();
     startPolling();
+}
+
+function renderSidebarUser() {
+    const user = getUser();
+    if (!user) return;
+
+    document.getElementById('sidebar-username').textContent = user.username;
+    document.getElementById('sidebar-avatar').textContent = user.username.charAt(0).toUpperCase();
 }
 
 // ================================================================
@@ -674,6 +1078,10 @@ function closeTerminal() {
 function startPolling() {
     stopPolling();
     pollTimer = setInterval(() => {
+        if (!getProfilePreferences().autoRefresh) {
+            return;
+        }
+
         // Chỉ poll khi đang ở dashboard instances section
         const section = document.getElementById('section-instances');
         if (section && section.classList.contains('active')
@@ -730,6 +1138,12 @@ function escapeHtml(str) {
 // ================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    if (handleOAuthRedirect()) {
+        return;
+    }
+
+    initAuthPasswordEnhancements();
+
     // Kiểm tra nếu đã có token hợp lệ → vào dashboard ngay
     const token = getToken();
     if (token) {
@@ -743,4 +1157,257 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modal-rent').addEventListener('click', function(e) {
         if (e.target === this) closeModal('modal-rent');
     });
+
+document.getElementById('modal-profile').addEventListener('click', function(e) {
+        if (e.target === this) closeModal('modal-profile');
+    });
 });
+
+async function parseApiResponse(response) {
+    let data = null;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+        const text = await response.text();
+        if (text) {
+            data = JSON.parse(text);
+        }
+    }
+    return data;
+}
+
+async function refreshAccessToken() {
+    if (refreshPromise) {
+        return refreshPromise;
+    }
+
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+        throw new Error('Phien dang nhap da het han');
+    }
+
+    refreshPromise = (async () => {
+        const response = await fetch(`${API_BASE}/auth/refresh`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ refreshToken }),
+        });
+        const data = await parseApiResponse(response);
+
+        if (!response.ok) {
+            throw new Error((data && data.message) || 'Khong the lam moi token');
+        }
+        saveAuth(data.data);
+        return data.data.token;
+    })();
+
+    try {
+        return await refreshPromise;
+    } finally {
+        refreshPromise = null;
+    }
+}
+
+async function apiFetchWithRetry(url, options = {}, allowRefresh = true) {
+    const token = getToken();
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+    };
+
+    const response = await fetch(`${API_BASE}${url}`, {
+        ...options,
+        headers,
+    });
+    const data = await parseApiResponse(response);
+
+    if (response.status === 401 && allowRefresh && !url.startsWith('/auth/')) {
+        try {
+            await refreshAccessToken();
+            return apiFetchWithRetry(url, options, false);
+        } catch (error) {
+            clearAuth();
+            throw error;
+        }
+    }
+
+    if (!response.ok) {
+        throw new Error((data && data.message) || `HTTP ${response.status}`);
+    }
+
+    return data;
+}
+
+async function apiFetch(url, options = {}) {
+    return apiFetchWithRetry(url, options, true);
+}
+
+function openForgotPasswordModal() {
+    document.getElementById('forgot-password-error').classList.add('hidden');
+    document.getElementById('forgot-email').value = '';
+    openModal('modal-forgot-password');
+}
+
+async function handleForgotPassword(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-forgot-password');
+    const errorEl = document.getElementById('forgot-password-error');
+
+    setButtonLoading(btn, true);
+    errorEl.classList.add('hidden');
+
+    try {
+        const data = await apiFetch('/auth/forgot-password', {
+            method: 'POST',
+            body: JSON.stringify({
+                email: document.getElementById('forgot-email').value,
+            }),
+        });
+        closeModal('modal-forgot-password');
+        showToast(data.message || 'Da gui email dat lai mat khau.', 'success');
+    } catch (error) {
+        errorEl.textContent = error.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        setButtonLoading(btn, false);
+    }
+}
+
+function openResetPasswordModal(token) {
+    document.getElementById('reset-password-token').value = token;
+    document.getElementById('reset-new-password').value = '';
+    document.getElementById('reset-password-error').classList.add('hidden');
+    openModal('modal-reset-password');
+}
+
+async function handleResetPassword(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-reset-password');
+    const errorEl = document.getElementById('reset-password-error');
+
+    setButtonLoading(btn, true);
+    errorEl.classList.add('hidden');
+
+    try {
+        const data = await apiFetch('/auth/reset-password', {
+            method: 'POST',
+            body: JSON.stringify({
+                token: document.getElementById('reset-password-token').value,
+                newPassword: document.getElementById('reset-new-password').value,
+            }),
+        });
+        closeModal('modal-reset-password');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('resetToken');
+        history.replaceState(null, '', url.pathname + url.search);
+        switchAuthTab('login');
+        showView('auth');
+        showToast(data.message || 'Dat lai mat khau thanh cong.', 'success');
+    } catch (error) {
+        errorEl.textContent = error.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        setButtonLoading(btn, false);
+    }
+}
+
+async function handleAuthLinkActions() {
+    const url = new URL(window.location.href);
+    const verifyToken = url.searchParams.get('verifyToken');
+    const resetToken = url.searchParams.get('resetToken');
+
+    if (verifyToken) {
+        try {
+            const data = await apiFetch('/auth/verify-email', {
+                method: 'POST',
+                body: JSON.stringify({ token: verifyToken }),
+            });
+            showToast(data.message || 'Xac thuc email thanh cong.', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+        url.searchParams.delete('verifyToken');
+        history.replaceState(null, '', url.pathname + url.search);
+        switchAuthTab('login');
+        showView('auth');
+    }
+
+    if (resetToken) {
+        switchAuthTab('login');
+        showView('auth');
+        openResetPasswordModal(resetToken);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const forgotModal = document.getElementById('modal-forgot-password');
+    if (forgotModal) {
+        forgotModal.addEventListener('click', function(e) {
+            if (e.target === this) closeModal('modal-forgot-password');
+        });
+    }
+
+    const resetModal = document.getElementById('modal-reset-password');
+    if (resetModal) {
+        resetModal.addEventListener('click', function(e) {
+            if (e.target === this) closeModal('modal-reset-password');
+        });
+    }
+
+    handleAuthLinkActions();
+});
+
+function handlePreferenceChange() {
+    const prefs = {
+        autoRefresh: document.getElementById('pref-auto-refresh').checked,
+        toasts: document.getElementById('pref-toasts').checked,
+    };
+    saveProfilePreferences(prefs);
+    showToast('Đã cập nhật tùy chọn.', 'success');
+}
+
+function populateProfile(profile) {
+    document.getElementById('profile-username').textContent = profile.username || 'User';
+    document.getElementById('profile-avatar').textContent = (profile.username || 'U').charAt(0).toUpperCase();
+    document.getElementById('profile-username-input').value = profile.username || '';
+    document.getElementById('profile-username-readonly').textContent = profile.username || 'User';
+    document.getElementById('profile-email-readonly').textContent = profile.email || '-';
+    document.getElementById('profile-created').textContent = profile.createdAt
+        ? `Tạo lúc ${formatDateTime(profile.createdAt)}`
+        : 'Tài khoản CloudVM';
+}
+
+function populateUsageFromInstances(instances) {
+    const runningInstances = instances.filter(instance => instance.status === 'RUNNING');
+    const pendingInstances = instances.filter(instance => instance.status === 'PENDING');
+    const expiredInstances = instances.filter(instance => instance.status === 'STOPPED_EXPIRED');
+
+    document.getElementById('usage-running').textContent = runningInstances.length;
+    document.getElementById('usage-pending').textContent = pendingInstances.length;
+    document.getElementById('usage-expired').textContent = expiredInstances.length;
+    document.getElementById('usage-total').textContent = instances.length;
+
+    const runningList = document.getElementById('usage-running-list');
+    const runningCount = document.getElementById('usage-running-list-count');
+    runningCount.textContent = `${runningInstances.length} máy`;
+
+    if (runningInstances.length === 0) {
+        runningList.innerHTML = '<div class="usage-empty">Chưa có máy ảo đang chạy.</div>';
+        return;
+    }
+
+    runningList.innerHTML = runningInstances.map(instance => `
+        <div class="usage-instance-item">
+            <div class="usage-instance-main">
+                <div class="usage-instance-name">${escapeHtml(instance.packageName || 'CloudVM instance')}</div>
+                <div class="usage-instance-meta">
+                    ${escapeHtml(instance.instanceType || '-')} | ${instance.publicIp || 'Chưa có IP'}
+                </div>
+            </div>
+            <span class="status-badge status-running">Đang chạy</span>
+        </div>
+    `).join('');
+}
+
