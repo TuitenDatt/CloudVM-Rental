@@ -1,13 +1,13 @@
 package com.cloudvm.entity;
 
-import com.cloudvm.enums.AuthProvider;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,34 +19,31 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "Users")
+@Table(name = "RefreshTokens")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class User {
+public class RefreshToken {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     private Integer id;
 
-    @Column(name = "username", nullable = false, unique = true, length = 50)
-    private String username;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    @Column(name = "password", nullable = false, length = 255)
-    private String password;
+    @Column(name = "token", nullable = false, unique = true, length = 255)
+    private String token;
 
-    @Column(name = "email", nullable = false, unique = true, length = 100)
-    private String email;
+    @Column(name = "expires_at", nullable = false)
+    private LocalDateTime expiresAt;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "auth_provider", nullable = false, length = 20)
-    private AuthProvider authProvider;
-
-    @Column(name = "email_verified", nullable = false)
-    private Boolean emailVerified;
+    @Column(name = "revoked", nullable = false)
+    private Boolean revoked;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

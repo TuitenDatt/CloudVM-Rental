@@ -1,13 +1,16 @@
 package com.cloudvm.entity;
 
-import com.cloudvm.enums.AuthProvider;
+import com.cloudvm.enums.VerificationTokenType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,34 +22,35 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "Users")
+@Table(name = "VerificationTokens")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class User {
+public class VerificationToken {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
     private Integer id;
 
-    @Column(name = "username", nullable = false, unique = true, length = 50)
-    private String username;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    @Column(name = "password", nullable = false, length = 255)
-    private String password;
-
-    @Column(name = "email", nullable = false, unique = true, length = 100)
-    private String email;
+    @Column(name = "token", nullable = false, unique = true, length = 255)
+    private String token;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "auth_provider", nullable = false, length = 20)
-    private AuthProvider authProvider;
+    @Column(name = "type", nullable = false, length = 30)
+    private VerificationTokenType type;
 
-    @Column(name = "email_verified", nullable = false)
-    private Boolean emailVerified;
+    @Column(name = "expires_at", nullable = false)
+    private LocalDateTime expiresAt;
+
+    @Column(name = "used", nullable = false)
+    private Boolean used;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
