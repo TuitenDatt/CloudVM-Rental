@@ -19,6 +19,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 
 /**
  * Cấu hình Spring Security.
@@ -52,14 +53,14 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/auth/**",
-                                "/oauth2/**",
-                                "/login/oauth2/**",
-                                "/",
-                                "/index.html",
-                                "/css/**",
-                                "/js/**",
-                                "/favicon.ico"
+                                AntPathRequestMatcher.antMatcher("/api/auth/**"),
+                                AntPathRequestMatcher.antMatcher("/oauth2/**"),
+                                AntPathRequestMatcher.antMatcher("/login/oauth2/**"),
+                                AntPathRequestMatcher.antMatcher("/"),
+                                AntPathRequestMatcher.antMatcher("/index.html"),
+                                AntPathRequestMatcher.antMatcher("/css/**"),
+                                AntPathRequestMatcher.antMatcher("/js/**"),
+                                AntPathRequestMatcher.antMatcher("/favicon.ico")
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

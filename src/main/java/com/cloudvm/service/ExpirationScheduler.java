@@ -44,6 +44,7 @@ public class ExpirationScheduler {
 
     private final CloudInstanceRepository cloudInstanceRepository;
     private final Ec2Client ec2Client;
+    private final InstanceNotificationService instanceNotificationService;
 
     // ================================================================
     // CRON JOB 1: Stop Expired Instances
@@ -89,6 +90,7 @@ public class ExpirationScheduler {
             log.warn("[CRON-1] Instance DB ID {} không có awsInstanceId, skip.", instance.getId());
             instance.setStatus(InstanceStatus.STOPPED_EXPIRED);
             cloudInstanceRepository.save(instance);
+            instanceNotificationService.sendExpiredEmail(instance);
             return;
         }
 
@@ -105,6 +107,7 @@ public class ExpirationScheduler {
             instance.setStatus(InstanceStatus.STOPPED_EXPIRED);
             instance.setPublicIp(null); // IP bị release khi stop
             cloudInstanceRepository.save(instance);
+            instanceNotificationService.sendExpiredEmail(instance);
 
             log.info("[CRON-1] Đã dừng thành công: DB={}, AWS={}", instance.getId(), awsId);
 
@@ -112,6 +115,24 @@ public class ExpirationScheduler {
             log.error("[CRON-1] Lỗi khi dừng instance DB={}, AWS={}: {}",
                     instance.getId(), awsId, e.getMessage(), e);
         }
+    }
+
+    @Scheduled(cron = "${app.instance.expiration-reminder-cron:0 5 * * * *}")
+    @Transactional(readOnly = true)
+    public void sendExpirationReminders() {
+        LocalDateTime from = LocalDateTime.now().plusDays(3);
+        LocalDateTime to = from.plusHours(1);
+        log.info("[CRON-REMINDER] Kiem tra instance sap het han tu {} den {}", from, to);
+
+        List<CloudInstance> instances = cloudInstanceRepository.findRunningInstancesExpiringBetween(from, to);
+
+        if (instances.isEmpty()) {
+            log.info("[CRON-REMINDER] Khong co instance nao can nhac het han.");
+            return;
+        }
+
+        log.info("[CRON-REMINDER] Tim thay {} instance can gui mail nhac het han.", instances.size());
+        instances.forEach(instanceNotificationService::sendExpirationReminderEmail);
     }
 
     // ================================================================

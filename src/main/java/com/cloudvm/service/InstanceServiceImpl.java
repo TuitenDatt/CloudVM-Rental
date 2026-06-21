@@ -54,6 +54,7 @@ public class InstanceServiceImpl implements InstanceService {
     private final PackageRepository packageRepository;
     private final UserRepository userRepository;
     private final Ec2Client ec2Client;
+    private final InstanceNotificationService instanceNotificationService;
 
     /**
      * Self-reference để gọi @Async method từ trong cùng class.
@@ -247,6 +248,9 @@ public class InstanceServiceImpl implements InstanceService {
 
             log.info("[ASYNC] Provision hoàn thành. DB ID: {}, AWS ID: {}, IP: {}",
                     dbInstanceId, awsInstanceId, publicIp);
+
+            cloudInstanceRepository.findWithUserAndPkgById(dbInstanceId)
+                    .ifPresent(instanceNotificationService::sendRentalSuccessEmail);
 
         } catch (Exception e) {
             log.error("[ASYNC] Provision thất bại cho DB instance {}: {}", dbInstanceId, e.getMessage(), e);
