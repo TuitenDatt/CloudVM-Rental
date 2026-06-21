@@ -75,3 +75,4 @@ Truy cập: http://localhost:8080
 2. Tạo **Security Group** cho EC2 instances
 3. Chuẩn bị **Public Subnet** trong VPC
 4. AMI: Windows Server 2022 Base (kiểm tra AMI ID đúng với region)
+

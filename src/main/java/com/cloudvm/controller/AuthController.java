@@ -95,8 +95,14 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPassword(
             @Valid @RequestBody ForgotPasswordRequest request
     ) {
-        authService.forgotPassword(request);
-        return ResponseEntity.ok(ApiResponse.success("Neu email ton tai, chung toi da gui huong dan dat lai mat khau.", null));
+        try {
+            authService.forgotPassword(request);
+            return ResponseEntity.ok(ApiResponse.success("Neu email ton tai, chung toi da gui huong dan dat lai mat khau.", null));
+        } catch (IllegalStateException e) {
+            log.warn("Gui email dat lai mat khau that bai: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(ApiResponse.error(e.getMessage()));
+        }
     }
 
     @PostMapping("/reset-password")

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Repository cho entity CloudInstance.
@@ -46,6 +47,12 @@ public interface CloudInstanceRepository extends JpaRepository<CloudInstance, In
            "ORDER BY c.createdAt DESC")
     List<CloudInstance> findByUserIdOrderByCreatedAtDesc(@Param("userId") Integer userId);
 
+    @Query("SELECT c FROM CloudInstance c " +
+           "JOIN FETCH c.user " +
+           "JOIN FETCH c.pkg " +
+           "WHERE c.id = :id")
+    Optional<CloudInstance> findWithUserAndPkgById(@Param("id") Integer id);
+
     /**
      * Cron Job 1: Tìm các instance đang RUNNING đã quá thời hạn thuê.
      * Những instance này sẽ bị stop và chuyển thành STOPPED_EXPIRED.
@@ -57,6 +64,17 @@ public interface CloudInstanceRepository extends JpaRepository<CloudInstance, In
            "WHERE c.status = 'RUNNING' " +
            "AND c.expireDate < :now")
     List<CloudInstance> findExpiredRunningInstances(@Param("now") LocalDateTime now);
+
+    @Query("SELECT c FROM CloudInstance c " +
+           "JOIN FETCH c.user " +
+           "JOIN FETCH c.pkg " +
+           "WHERE c.status = 'RUNNING' " +
+           "AND c.expireDate >= :from " +
+           "AND c.expireDate < :to")
+    List<CloudInstance> findRunningInstancesExpiringBetween(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
 
     /**
      * Cron Job 2: Tìm các instance đã STOPPED_EXPIRED và đã quá ngưỡng
