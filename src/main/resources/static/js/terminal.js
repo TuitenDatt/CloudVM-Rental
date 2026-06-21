@@ -1,5 +1,5 @@
 /**
- * terminal.js — Xterm.js + AWS SSM WebSocket Integration
+ * terminal.js v4 — Xterm.js + AWS SSM WebSocket Integration
  *
  * Chức năng:
  * 1. Khởi tạo Xterm.js terminal với theme đẹp
@@ -16,6 +16,10 @@
  */
 
 'use strict';
+
+console.log('[SSM] terminal.js v8 loaded — ACK UUID/flags fix');
+
+const SSM_CLIENT_VERSION = '1.2.835.0';
 
 // ================================================================
 // XTERM CONFIG
@@ -67,8 +71,19 @@ const SSM_MSG_TYPE = {
     CHANNEL_CLOSED:     'channel_closed',
 };
 
+const SSM_PAYLOAD_TYPE = {
+    OUTPUT:             1,
+    ERROR:              2,
+    SIZE:               3,
+    HANDSHAKE_REQUEST:  5,
+    HANDSHAKE_RESPONSE: 6,
+    HANDSHAKE_COMPLETE: 7,
+    STDERR:             11,
+    EXIT_CODE:          12,
+};
+
 // Header size trong SSM binary protocol
-const SSM_HEADER_SIZE = 116; // bytes
+const SSM_HEADER_SIZE = 120; // bytes
 
 /**
  * Khởi tạo Xterm.js terminal và kết nối WebSocket SSM.
@@ -98,6 +113,8 @@ function initTerminal(streamUrl, tokenValue, sessionId) {
     term.loadAddon(linksAddon);
     term.open(container);
     fitAddon.fit();
+    term.focus(); // Đảm bảo nhận keyboard input ngay khi mở
+    container.addEventListener('mousedown', () => term.focus());
 
     window.activeTerminal = term;
 
@@ -130,10 +147,14 @@ function initTerminal(streamUrl, tokenValue, sessionId) {
 function connectSsmWebSocket(term, streamUrl, tokenValue, sessionId) {
     const ws = new WebSocket(streamUrl);
     ws.binaryType = 'arraybuffer';
+    ws._receivedSeqs = new Set(); // Dedup: mỗi seq# chỉ hiển thị 1 lần dù SSM retransmit
     window.activeWs = ws;
 
-    let isAuthenticated = false;
-    let sequenceNumber  = 0;
+    let isReadyForInput = false;
+    let hasSentInitialResize = false;
+    let clientSequenceNumber = 0;
+    let sendQueue = Promise.resolve();
+    const clientId = generateUUIDv4();
 
     // ---- WebSocket Events ----
 
@@ -141,18 +162,30 @@ function connectSsmWebSocket(term, streamUrl, tokenValue, sessionId) {
         console.log('[SSM] WebSocket connected, sending token...');
 
         // Bước 1: Gửi token authentication message dạng JSON String
-        const tokenMsg = buildTokenMessage(tokenValue);
+        const tokenMsg = buildTokenMessage(tokenValue, clientId);
         ws.send(tokenMsg);
+
     };
 
-    ws.onmessage = function(event) {
+    ws.onmessage = async function(event) {
         try {
             const data = event.data;
 
             // Data có thể là ArrayBuffer (binary) hoặc string (JSON)
             if (data instanceof ArrayBuffer) {
-                handleBinaryMessage(term, ws, data, sequenceNumber);
-                sequenceNumber++;
+                const result = await handleBinaryMessage(term, ws, data, clientSequenceNumber);
+                if (result && result.sentMessages) {
+                    clientSequenceNumber += result.sentMessages;
+                }
+                if (result && result.readyForInput) {
+                    isReadyForInput = true;
+                    if (!hasSentInitialResize) {
+                        await sendTerminalResize(ws, term.cols, term.rows, clientSequenceNumber);
+                        clientSequenceNumber++;
+                        hasSentInitialResize = true;
+                    }
+                    term.focus();
+                }
             } else if (typeof data === 'string') {
                 handleTextMessage(term, ws, data, tokenValue);
             }
@@ -163,6 +196,9 @@ function connectSsmWebSocket(term, streamUrl, tokenValue, sessionId) {
     };
 
     ws.onclose = function(event) {
+      
+        if (window.activeWs !== ws) return;
+
         console.log('[SSM] WebSocket closed:', event.code, event.reason);
         term.writeln('');
         term.writeln('\x1b[33m⚠ Kết nối đã bị đóng. Code: ' + event.code + '\x1b[0m');
@@ -181,17 +217,28 @@ function connectSsmWebSocket(term, streamUrl, tokenValue, sessionId) {
 
     // ---- Xterm Input → WebSocket ----
     term.onData(function(inputData) {
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (ws.readyState !== WebSocket.OPEN || !isReadyForInput) return;
 
-        const inputMsg = buildInputStreamMessage(inputData, sequenceNumber);
-        ws.send(inputMsg);
-        sequenceNumber++;
+        const seqNum = clientSequenceNumber++;
+        sendQueue = sendQueue.then(async function() {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            const inputMsg = await buildInputStreamMessage(inputData, seqNum);
+            ws.send(inputMsg);
+        }).catch(function(err) {
+            console.error('[SSM] Error sending input:', err);
+        });
     });
 
     // ---- Xterm Resize → WebSocket ----
     term.onResize(function(size) {
+        if (ws.readyState !== WebSocket.OPEN || !isReadyForInput) return;
         console.log('[SSM] Terminal resized:', size.cols, 'x', size.rows);
-        // Gửi resize event nếu SSM document hỗ trợ
+        const seqNum = clientSequenceNumber++;
+        sendQueue = sendQueue.then(function() {
+            return sendTerminalResize(ws, size.cols, size.rows, seqNum);
+        }).catch(function(err) {
+            console.error('[SSM] Error sending resize:', err);
+        });
     });
 }
 
@@ -217,9 +264,8 @@ function connectSsmWebSocket(term, streamUrl, tokenValue, sessionId) {
  * @param {Terminal}     term            Xterm instance
  * @param {WebSocket}    ws              WebSocket connection
  * @param {ArrayBuffer}  data            Raw binary data
- * @param {number}       seqNum          Current sequence number
  */
-function handleBinaryMessage(term, ws, data, seqNum) {
+async function handleBinaryMessage(term, ws, data, clientSequenceNumber) {
     try {
         const buffer = new Uint8Array(data);
 
@@ -228,19 +274,72 @@ function handleBinaryMessage(term, ws, data, seqNum) {
             return;
         }
 
-        // Đọc MessageType từ bytes 4-36 (null-padded string)
+        // Đọc MessageType từ bytes 4-36 (null-padded or space-padded string)
         const msgTypeBytes = buffer.slice(4, 36);
         const msgType = new TextDecoder().decode(msgTypeBytes).replace(/\0/g, '').trim();
 
-        // Đọc payload length từ bytes 88-92
         const view = new DataView(data);
-        const payloadLength = view.getUint32(88, false); // big-endian
+        // Đọc sequence number của server từ bytes 48-56
+        const serverSeqNum = view.getBigInt64(48, false);
+        // Đọc MessageId từ bytes 64-80 (16 bytes UUID) — cần cho ACK đúng format
+        const messageId = bytesToUuid(buffer.slice(64, 80));
+
+        const payloadType = view.getUint32(112, false);
+        // Đọc payload length từ bytes 116-120
+        const payloadLength = view.getUint32(116, false); // big-endian
 
         if (msgType === SSM_MSG_TYPE.OUTPUT_STREAM_DATA && payloadLength > 0) {
-            // Extract payload và hiển thị lên terminal
+            const seqNumInt = Number(serverSeqNum);
+            let sentMessages = 0;
+
+            // Luôn gửi ACK trước — kể cả retransmission
+            await sendAcknowledge(ws, serverSeqNum, messageId);
+
+            // Dedup: chỉ hiển thị nếu seq này chưa từng nhận
+            if (ws._receivedSeqs && ws._receivedSeqs.has(seqNumInt)) {
+                console.log('[SSM] Retransmit seq:', seqNumInt, '— ACK sent, display skipped');
+                return { sentMessages: sentMessages };
+            }
+            if (ws._receivedSeqs) ws._receivedSeqs.add(seqNumInt);
+
             const payload = buffer.slice(SSM_HEADER_SIZE, SSM_HEADER_SIZE + payloadLength);
             const text = new TextDecoder('utf-8').decode(payload);
-            term.write(text);
+
+            if (payloadType === SSM_PAYLOAD_TYPE.HANDSHAKE_REQUEST) {
+                const response = buildHandshakeResponse(text);
+                const responseMsg = await buildSsmMessage(
+                    SSM_MSG_TYPE.INPUT_STREAM_DATA,
+                    response,
+                    clientSequenceNumber + sentMessages,
+                    SSM_PAYLOAD_TYPE.HANDSHAKE_RESPONSE
+                );
+                ws.send(responseMsg);
+                console.log('[SSM] Handshake response sent');
+                sentMessages++;
+                return { sentMessages: sentMessages };
+            }
+
+            if (payloadType === SSM_PAYLOAD_TYPE.HANDSHAKE_COMPLETE) {
+                console.log('[SSM] Handshake complete');
+                const overlay = document.getElementById('terminal-overlay');
+                if (overlay) overlay.classList.add('hidden');
+                updateTerminalStatusBadge('connected');
+                return { sentMessages: sentMessages, readyForInput: true };
+            }
+
+            if (
+                payloadType === SSM_PAYLOAD_TYPE.OUTPUT ||
+                payloadType === SSM_PAYLOAD_TYPE.STDERR ||
+                payloadType === SSM_PAYLOAD_TYPE.EXIT_CODE
+            ) {
+                term.write(text);
+                const overlay = document.getElementById('terminal-overlay');
+                if (overlay && !overlay.classList.contains('hidden')) {
+                    overlay.classList.add('hidden');
+                    updateTerminalStatusBadge('connected');
+                }
+                return { sentMessages: sentMessages, readyForInput: true };
+            }
 
             // Ẩn overlay sau khi nhận output đầu tiên
             const overlay = document.getElementById('terminal-overlay');
@@ -248,9 +347,6 @@ function handleBinaryMessage(term, ws, data, seqNum) {
                 overlay.classList.add('hidden');
                 updateTerminalStatusBadge('connected');
             }
-
-            // Gửi acknowledge
-            sendAcknowledge(ws, seqNum);
         }
 
         if (msgType === SSM_MSG_TYPE.CHANNEL_CLOSED) {
@@ -261,6 +357,8 @@ function handleBinaryMessage(term, ws, data, seqNum) {
     } catch (err) {
         console.error('[SSM] Parse binary error:', err);
     }
+
+    return null;
 }
 
 /**
@@ -286,6 +384,36 @@ function handleTextMessage(term, ws, data, tokenValue) {
 // SSM MESSAGE BUILDERS
 // ================================================================
 
+/**
+ * Chuyển 16 bytes (UUID bytes từ header SSM) thành chuỗi UUID dạng:
+ * xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+ * Cần thiết để build ACK message đúng format AWS SSM.
+ *
+ * @param {Uint8Array} bytes  16 bytes từ offset 64-80 của header
+ * @returns {string}
+ */
+function bytesToUuid(bytes) {
+    // AWS SSM serializes UUID as least-significant 8 bytes, then most-significant 8 bytes.
+    const normalized = new Uint8Array(16);
+    normalized.set(bytes.slice(8, 16), 0);
+    normalized.set(bytes.slice(0, 8), 8);
+    const hex = Array.from(normalized).map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
+}
+
+function uuidToSsmBytes(uuid) {
+    const clean = uuid.replace(/-/g, '');
+    const canonical = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) {
+        canonical[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    }
+
+    const ssmBytes = new Uint8Array(16);
+    ssmBytes.set(canonical.slice(8, 16), 0);
+    ssmBytes.set(canonical.slice(0, 8), 8);
+    return ssmBytes;
+}
+
 function generateUUIDv4() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -301,15 +429,36 @@ function generateUUIDv4() {
  * @param {string} tokenValue  Token từ StartSession response
  * @returns {string}
  */
-function buildTokenMessage(tokenValue) {
+function buildTokenMessage(tokenValue, clientId) {
     const msg = {
         MessageSchemaVersion: "1.0",
         RequestId: generateUUIDv4(),
         TokenValue: tokenValue,
+        ClientId: clientId,
+        ClientVersion: SSM_CLIENT_VERSION,
         Client: "AWS-Systems-Manager-Session-Manager"
     };
     console.log('[SSM] Token message built with RequestId:', msg.RequestId);
     return JSON.stringify(msg);
+}
+
+function buildHandshakeResponse(payloadText) {
+    let requestedActions = [];
+    try {
+        const request = JSON.parse(payloadText);
+        requestedActions = request.RequestedClientActions || [];
+    } catch (err) {
+        console.warn('[SSM] Cannot parse handshake request, sending empty response:', err);
+    }
+
+    return JSON.stringify({
+        ClientVersion: SSM_CLIENT_VERSION,
+        ProcessedClientActions: requestedActions.map(action => ({
+            ActionType: action.ActionType,
+            ActionStatus: action.ActionType === 'SessionType' ? 1 : 3
+        })),
+        Errors: []
+    });
 }
 
 /**
@@ -319,8 +468,20 @@ function buildTokenMessage(tokenValue) {
  * @param {number} seqNum        Sequence number
  * @returns {ArrayBuffer}
  */
-function buildInputStreamMessage(inputText, seqNum) {
-    return buildSsmMessage(SSM_MSG_TYPE.INPUT_STREAM_DATA, inputText, seqNum);
+async function buildInputStreamMessage(inputText, seqNum) {
+    return buildSsmMessage(SSM_MSG_TYPE.INPUT_STREAM_DATA, inputText, seqNum, SSM_PAYLOAD_TYPE.OUTPUT);
+}
+
+async function sendTerminalResize(ws, cols, rows, seqNum) {
+    const resizePayload = JSON.stringify({ cols: cols, rows: rows });
+    const resizeMsg = await buildSsmMessage(
+        SSM_MSG_TYPE.INPUT_STREAM_DATA,
+        resizePayload,
+        seqNum,
+        SSM_PAYLOAD_TYPE.SIZE
+    );
+    ws.send(resizeMsg);
+    console.log('[SSM] Terminal resize sent:', cols, 'x', rows);
 }
 
 /**
@@ -330,11 +491,27 @@ function buildInputStreamMessage(inputText, seqNum) {
  * @param {WebSocket} ws    WebSocket connection
  * @param {number}    seqNum  Sequence number cần ack
  */
-function sendAcknowledge(ws, seqNum) {
+/**
+ * Gửi Acknowledge message theo đúng format AWS SSM protocol.
+ * Thiếu AcknowledgedMessageId hoặc AcknowledgedMessageType → SSM không nhận ACK
+ * → retransmit liên tục → terminal lặp lại output.
+ *
+ * @param {WebSocket} ws
+ * @param {BigInt}    seqNum      Sequence number của message cần ACK
+ * @param {string}    messageId   UUID của message cần ACK (bytes 64-80 của header)
+ */
+async function sendAcknowledge(ws, seqNum, messageId) {
     if (ws.readyState !== WebSocket.OPEN) return;
-    const ackPayload = JSON.stringify({ SequenceNumber: seqNum });
-    const ackMsg = buildSsmMessage(SSM_MSG_TYPE.ACKNOWLEDGE, ackPayload, seqNum);
+    const seqNumInt = Number(seqNum);
+    const ackPayload = JSON.stringify({
+        AcknowledgedMessageType:           SSM_MSG_TYPE.OUTPUT_STREAM_DATA,
+        AcknowledgedMessageId:             messageId,
+        AcknowledgedMessageSequenceNumber: seqNumInt,
+        IsSequentialMessage:               true
+    });
+    const ackMsg = await buildSsmMessage(SSM_MSG_TYPE.ACKNOWLEDGE, ackPayload, 0, 0, 3n);
     ws.send(ackMsg);
+    console.log('[SSM] ACK sent for seq:', seqNumInt, 'msgId:', messageId.slice(0, 8) + '...');
 }
 
 /**
@@ -346,18 +523,30 @@ function sendAcknowledge(ws, seqNum) {
  * @param {number} sequenceNumber  Sequence number
  * @returns {ArrayBuffer}
  */
-function buildSsmMessage(messageType, payloadStr, sequenceNumber) {
+/**
+ * Builder tổng quát cho SSM binary message.
+ * Tạo 120-byte header + payload.
+ *
+ * @param {string} messageType     Loại message (SSM_MSG_TYPE)
+ * @param {string} payloadStr      Payload dạng string (sẽ UTF-8 encode)
+ * @param {number} sequenceNumber  Sequence number
+ * @param {number} [payloadType=0] PayloadType theo AWS SSM data channel
+ * @param {bigint} [flags=0n]      Flags theo AWS SSM data channel
+ * @returns {ArrayBuffer}
+ */
+async function buildSsmMessage(messageType, payloadStr, sequenceNumber, payloadType = 0, flags = 0n) {
     const payloadBytes = new TextEncoder().encode(payloadStr);
     const totalSize    = SSM_HEADER_SIZE + payloadBytes.length;
     const buffer       = new ArrayBuffer(totalSize);
     const view         = new DataView(buffer);
     const byteArray    = new Uint8Array(buffer);
 
-    // HeaderLength (4 bytes, big-endian)
-    view.setUint32(0, SSM_HEADER_SIZE, false);
+    // HeaderLength (4 bytes, big-endian) — header cố định 116 bytes (không tính PayloadLength)
+    view.setUint32(0, 116, false);
 
-    // MessageType (32 bytes, padded với null)
-    const msgTypeBytes = new TextEncoder().encode(messageType);
+    // MessageType (32 bytes, space-padded)
+    const paddedMessageType = messageType.padEnd(32, ' ');
+    const msgTypeBytes = new TextEncoder().encode(paddedMessageType);
     byteArray.set(msgTypeBytes, 4);
 
     // SchemaVersion (4 bytes)
@@ -370,24 +559,23 @@ function buildSsmMessage(messageType, payloadStr, sequenceNumber) {
     // SequenceNumber (8 bytes)
     view.setBigUint64(48, BigInt(sequenceNumber), false);
 
-    // Flags (8 bytes) — 0 for now
-    view.setBigUint64(56, 0n, false);
+    // Flags (8 bytes)
+    view.setBigUint64(56, flags, false);
 
     // MessageId (16 bytes) — random UUID bytes
-    const uuid = crypto.getRandomValues(new Uint8Array(16));
-    byteArray.set(uuid, 64);
+    byteArray.set(uuidToSsmBytes(generateUUIDv4()), 64);
 
-    // PayloadDigest (32 bytes) — zeros (simplified)
-    // Production: SHA256 of payload
+    // PayloadDigest (32 bytes) — SHA-256 của payload, giống session-manager-plugin.
+    const digest = await crypto.subtle.digest('SHA-256', payloadBytes);
+    byteArray.set(new Uint8Array(digest), 80);
 
-    // PayloadType (4 bytes) — 1 = Output, 0 = Input
-    const payloadType = messageType === SSM_MSG_TYPE.OUTPUT_STREAM_DATA ? 1 : 0;
-    view.setUint32(84, payloadType, false);
+    // PayloadType (4 bytes) — caller specifies: 0=default, 1=stdin/stdout, 2=TerminalResize
+    view.setUint32(112, payloadType, false);
 
     // PayloadLength (4 bytes)
-    view.setUint32(88, payloadBytes.length, false);
+    view.setUint32(116, payloadBytes.length, false);
 
-    // Payload
+    // Payload (starts at offset 120 = SSM_HEADER_SIZE)
     byteArray.set(payloadBytes, SSM_HEADER_SIZE);
 
     return buffer;
