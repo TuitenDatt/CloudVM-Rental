@@ -92,6 +92,7 @@ function saveAuth(authData) {
         username: authData.username,
         email:    authData.email,
         authProvider: authData.authProvider,
+        avatarUrl: authData.avatarUrl,
     }));
 }
 
@@ -111,6 +112,7 @@ function updateStoredUser(profile) {
         userId: profile.userId,
         username: profile.username,
         email: profile.email,
+        avatarUrl: profile.avatarUrl,
     }));
     renderSidebarUser();
 }
@@ -596,7 +598,12 @@ function handlePreferenceChange() {
 
 function populateProfile(profile) {
     document.getElementById('profile-username').textContent = profile.username || 'User';
-    document.getElementById('profile-avatar').textContent = (profile.username || 'U').charAt(0).toUpperCase();
+    const avatarEl = document.getElementById('profile-avatar');
+    if (profile.avatarUrl) {
+        avatarEl.innerHTML = `<img src="${profile.avatarUrl}" class="avatar-img" alt="Avatar" />`;
+    } else {
+        avatarEl.textContent = (profile.username || 'U').charAt(0).toUpperCase();
+    }
     document.getElementById('profile-username-input').value = profile.username || '';
     document.getElementById('profile-username-readonly').textContent = profile.username || 'User';
     document.getElementById('profile-email-readonly').textContent = profile.email || '-';
@@ -736,7 +743,12 @@ function renderSidebarUser() {
     if (!user) return;
 
     document.getElementById('sidebar-username').textContent = user.username;
-    document.getElementById('sidebar-avatar').textContent = user.username.charAt(0).toUpperCase();
+    const avatarEl = document.getElementById('sidebar-avatar');
+    if (user.avatarUrl) {
+        avatarEl.innerHTML = `<img src="${user.avatarUrl}" class="avatar-img" alt="Avatar" />`;
+    } else {
+        avatarEl.textContent = user.username.charAt(0).toUpperCase();
+    }
 }
 
 // ================================================================
@@ -1370,7 +1382,12 @@ function handlePreferenceChange() {
 
 function populateProfile(profile) {
     document.getElementById('profile-username').textContent = profile.username || 'User';
-    document.getElementById('profile-avatar').textContent = (profile.username || 'U').charAt(0).toUpperCase();
+    const avatarEl = document.getElementById('profile-avatar');
+    if (profile.avatarUrl) {
+        avatarEl.innerHTML = `<img src="${profile.avatarUrl}" class="avatar-img" alt="Avatar" />`;
+    } else {
+        avatarEl.textContent = (profile.username || 'U').charAt(0).toUpperCase();
+    }
     document.getElementById('profile-username-input').value = profile.username || '';
     document.getElementById('profile-username-readonly').textContent = profile.username || 'User';
     document.getElementById('profile-email-readonly').textContent = profile.email || '-';
@@ -1409,5 +1426,61 @@ function populateUsageFromInstances(instances) {
             <span class="status-badge status-running">Đang chạy</span>
         </div>
     `).join('');
+}
+
+async function uploadAvatar(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        showToast('Vui lòng chọn file hình ảnh (png, jpg, jpeg, gif).', 'error');
+        return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        showToast('Dung lượng ảnh tối đa là 5MB.', 'error');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const avatarEl = document.getElementById('profile-avatar');
+    const originalContent = avatarEl.innerHTML;
+    avatarEl.innerHTML = `<svg class="spinner" viewBox="0 0 24 24" style="width:50%;height:50%;"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="31.4" stroke-dashoffset="31.4"><animate attributeName="stroke-dashoffset" values="31.4;0;31.4" dur="1.2s" repeatCount="indefinite"/></circle></svg>`;
+
+    try {
+        const token = getToken();
+        const response = await fetch(`${API_BASE}/profile/avatar`, {
+            method: 'POST',
+            headers: {
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            },
+            body: formData,
+        });
+
+        let data = null;
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            const text = await response.text();
+            if (text) {
+                data = JSON.parse(text);
+            }
+        }
+
+        if (!response.ok) {
+            throw new Error((data && data.message) || `HTTP ${response.status}`);
+        }
+
+        showToast('Đã cập nhật ảnh đại diện thành công.', 'success');
+        populateProfile(data.data);
+        updateStoredUser(data.data);
+
+    } catch (error) {
+        avatarEl.innerHTML = originalContent;
+        showToast('Không thể upload ảnh: ' + error.message, 'error');
+    } finally {
+        input.value = '';
+    }
 }
 

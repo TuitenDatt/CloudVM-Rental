@@ -29,6 +29,7 @@ public class ProfileResponse {
     private long totalInstances;
     private long activeInstances;
     private int quotaLimit;
+    private String avatarUrl;
 
     public static ProfileResponse from(User user, List<CloudInstance> instances, long activeInstances, int quotaLimit) {
         return ProfileResponse.builder()
@@ -42,6 +43,7 @@ public class ProfileResponse {
                 .totalInstances(instances.size())
                 .activeInstances(activeInstances)
                 .quotaLimit(quotaLimit)
+                .avatarUrl(user.getAvatarUrl())
                 .build();
     }
 

@@ -21,13 +21,20 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
+import com.cloudvm.service.S3Service;
+import lombok.extern.slf4j.Slf4j;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/api/profile")
 @RequiredArgsConstructor
+@Slf4j
 public class ProfileController {
 
     private static final int ACTIVE_INSTANCE_QUOTA = 2;
@@ -36,6 +43,7 @@ public class ProfileController {
     private final CloudInstanceRepository cloudInstanceRepository;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
+    private final S3Service s3Service;
 
     @GetMapping
     @Transactional(readOnly = true)
@@ -86,6 +94,39 @@ public class ProfileController {
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
         return ResponseEntity.ok(ApiResponse.success("Doi mat khau thanh cong", null));
+    }
+
+    @PostMapping("/avatar")
+    @Transactional
+    public ResponseEntity<ApiResponse<ProfileResponse>> uploadAvatar(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestParam("file") MultipartFile file
+    ) {
+        try {
+            User user = getCurrentUser(authHeader);
+            if (file.isEmpty()) {
+                throw new IllegalArgumentException("File khong duoc de trong");
+            }
+
+            // Upload new avatar to S3
+            String publicUrl = s3Service.uploadAvatar(user.getId(), file);
+
+            // Delete old avatar from S3 if exists
+            if (user.getAvatarUrl() != null) {
+                s3Service.deleteFile(user.getAvatarUrl());
+            }
+
+            // Update user in DB
+            user.setAvatarUrl(publicUrl);
+            User savedUser = userRepository.save(user);
+
+            return ResponseEntity.ok(ApiResponse.success("Cap nhat anh dai dien thanh cong", buildProfile(savedUser)));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(e.getMessage()));
+        } catch (IOException e) {
+            log.error("Loi khi upload avatar len S3", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.error("Khong the upload anh dai dien: " + e.getMessage()));
+        }
     }
 
     private User getCurrentUser(String authHeader) {
